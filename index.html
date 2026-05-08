@@ -912,11 +912,20 @@
         function getStrategicMove() {
             const candidates = getCandidateMoves();
             if (candidates.length === 0) {
-                // If no candidates, return center or random
+                // If no candidates, return center or any empty cell
                 const center = Math.floor(BOARD_SIZE / 2);
                 if (board[center][center] === EMPTY) {
                     return { row: center, col: center };
                 }
+                // Find any empty cell
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
+                        if (board[row][col] === EMPTY) {
+                            return { row, col };
+                        }
+                    }
+                }
+                return null;
             }
 
             // Return best candidate
@@ -939,7 +948,8 @@
 
             // 30% chance for strategic move
             if (Math.random() < 0.3) {
-                return getStrategicMove();
+                const strategic = getStrategicMove();
+                if (strategic) return strategic;
             }
 
             // 70% random move
@@ -966,6 +976,17 @@
                         if (totalScore > bestScore) {
                             bestScore = totalScore;
                             bestMove = { row, col };
+                        }
+                    }
+                }
+            }
+
+            // Fallback if no candidates found
+            if (!bestMove) {
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
+                        if (board[row][col] === EMPTY) {
+                            return { row, col };
                         }
                     }
                 }
@@ -1017,11 +1038,22 @@
         // Hard difficulty: minimax with alpha-beta pruning, depth 3
         function aiMoveHard() {
             const candidates = getCandidateMoves();
+
+            // Fallback if no candidates
             if (candidates.length === 0) {
                 const center = Math.floor(BOARD_SIZE / 2);
                 if (board[center][center] === EMPTY) {
                     return { row: center, col: center };
                 }
+                // Try to find any empty cell
+                for (let row = 0; row < BOARD_SIZE; row++) {
+                    for (let col = 0; col < BOARD_SIZE; col++) {
+                        if (board[row][col] === EMPTY) {
+                            return { row, col };
+                        }
+                    }
+                }
+                return null;
             }
 
             let bestScore = -Infinity;
