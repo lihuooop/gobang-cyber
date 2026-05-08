@@ -712,404 +712,171 @@
 
         // ========== AI Evaluation Constants ==========
         const SCORES = {
-            FIVE: 100000,       // 五连
-            LIVE_FOUR: 10000,   // 活四
-            RUSH_FOUR: 1000,    // 冲四
-            LIVE_THREE: 500,    // 活三
-            SLEEP_THREE: 100,   // 眠三
-            LIVE_TWO: 50,       // 活二
-            SLEEP_TWO: 10,      // 眠二
-            LIVE_ONE: 2         // 活一
+            FIVE: 100000,
+            LIVE_FOUR: 10000,
+            RUSH_FOUR: 1000,
+            LIVE_THREE: 500,
+            SLEEP_THREE: 100,
+            LIVE_TWO: 50,
+            SLEEP_TWO: 10,
+            LIVE_ONE: 2
         };
 
-        // Direction vectors for evaluation
-        const DIRECTIONS = [
-            { dr: 0, dc: 1 },   // horizontal
-            { dr: 1, dc: 0 },   // vertical
-            { dr: 1, dc: 1 },   // diagonal
-            { dr: 1, dc: -1 }   // anti-diagonal
-        ];
+        // ========== Count consecutive pieces ==========
+        function countConsecutive(row, col, dr, dc, player) {
+            let count = 0;
+            let openEnds = 0;
+            let r, c;
+
+            // Count in positive direction
+            r = row + dr;
+            c = col + dc;
+            let posCount = 0;
+            while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
+                posCount++;
+                r += dr;
+                c += dc;
+            }
+            if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === EMPTY) {
+                openEnds++;
+            }
+
+            // Count in negative direction
+            r = row - dr;
+            c = col - dc;
+            let negCount = 0;
+            while (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === player) {
+                negCount++;
+                r -= dr;
+                c -= dc;
+            }
+            if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] === EMPTY) {
+                openEnds++;
+            }
+
+            count = posCount + negCount + 1; // +1 for the current piece
+            return { count, openEnds };
+        }
+
+        // ========== Evaluate position score ==========
+        function evaluatePositionScore(row, col, player) {
+            const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
+            let totalScore = 0;
+
+            for (const [dr, dc] of directions) {
+                const { count, openEnds } = countConsecutive(row, col, dr, dc, player);
+
+                if (count >= 5) {
+                    totalScore += SCORES.FIVE;
+                } else if (count === 4) {
+                    if (openEnds === 2) totalScore += SCORES.LIVE_FOUR;
+                    else if (openEnds === 1) totalScore += SCORES.RUSH_FOUR;
+                } else if (count === 3) {
+                    if (openEnds === 2) totalScore += SCORES.LIVE_THREE;
+                    else if (openEnds === 1) totalScore += SCORES.SLEEP_THREE;
+                } else if (count === 2) {
+                    if (openEnds === 2) totalScore += SCORES.LIVE_TWO;
+                    else if (openEnds === 1) totalScore += SCORES.SLEEP_TWO;
+                } else if (count === 1 && openEnds >= 1) {
+                    totalScore += SCORES.LIVE_ONE;
+                }
+            }
+
+            return totalScore;
+        }
 
         // ========== Has Neighbor ==========
-        // Check if position has pieces within 2 cells
         function hasNeighbor(row, col) {
-            for (let dr = -2; dr <= 2; dr++) {
-                for (let dc = -2; dc <= 2; dc++) {
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
                     if (dr === 0 && dc === 0) continue;
                     const r = row + dr;
                     const c = col + dc;
-                    if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
-                        if (board[r][c] !== EMPTY) {
-                            return true;
-                        }
+                    if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE && board[r][c] !== EMPTY) {
+                        return true;
                     }
                 }
             }
             return false;
         }
 
-        // ========== Get Line ==========
-        // Get pieces in specified direction (returns array of cells relative to position)
-        // line[0] is the cell at position, line[1..4] in positive direction, line[-4..-1] in negative direction
-        function getLine(row, col, dr, dc, player) {
-            const line = [];
-            const opponent = player === PLAYER ? AI : PLAYER;
-
-            // Get cells in negative direction (before current position)
-            for (let i = 4; i >= 1; i--) {
-                const r = row - dr * i;
-                const c = col - dc * i;
-                if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
-                    line.push({ row: r, col: c, value: board[r][c] });
-                }
-            }
-
-            // Current position
-            line.push({ row: row, col: col, value: player });
-
-            // Get cells in positive direction (after current position)
-            for (let i = 1; i <= 4; i++) {
-                const r = row + dr * i;
-                const c = col + dc * i;
-                if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
-                    line.push({ row: r, col: col, value: board[r][c] });
-                }
-            }
-
-            return line;
-        }
-
-        // ========== Analyze Pattern ==========
-        // Analyze a 9-cell line and return score for the player
-        function analyzePattern(line, player) {
-            const opponent = player === PLAYER ? AI : PLAYER;
-            const empty = EMPTY;
-
-            // Extract values
-            let before = [line[0].value, line[1].value, line[2].value, line[3].value];
-            let after = [line[5].value, line[6].value, line[7].value, line[8].value];
-            let center = line[4].value;
-
-            // Count consecutive pieces and open ends
-            let beforeCount = 0;
-            let beforeOpen = 0;
-            for (let i = 0; i < 4; i++) {
-                if (before[i] === player) {
-                    beforeCount++;
-                } else if (before[i] === empty) {
-                    beforeOpen = 4 - i;
-                    break;
-                } else {
-                    break;
-                }
-            }
-
-            let afterCount = 0;
-            let afterOpen = 0;
-            for (let i = 0; i < 4; i++) {
-                if (after[i] === player) {
-                    afterCount++;
-                } else if (after[i] === empty) {
-                    afterOpen = 4 - i;
-                    break;
-                } else {
-                    break;
-                }
-            }
-
-            const totalCount = beforeCount + afterCount + (center === player ? 1 : 0);
-            const openEnds = (before[0] === empty ? 1 : 0) + (after[3] === empty ? 1 : 0);
-
-            // Pattern analysis
-            if (totalCount >= 5) {
-                return SCORES.FIVE;
-            }
-
-            if (totalCount === 4) {
-                if (openEnds === 2) {
-                    return SCORES.LIVE_FOUR;
-                } else if (openEnds === 1) {
-                    return SCORES.RUSH_FOUR;
-                }
-            }
-
-            if (totalCount === 3) {
-                if (openEnds === 2) {
-                    return SCORES.LIVE_THREE;
-                } else if (openEnds === 1) {
-                    return SCORES.SLEEP_THREE;
-                }
-            }
-
-            if (totalCount === 2) {
-                if (openEnds === 2) {
-                    return SCORES.LIVE_TWO;
-                } else if (openEnds === 1) {
-                    return SCORES.SLEEP_TWO;
-                }
-            }
-
-            if (totalCount === 1 && openEnds >= 1) {
-                return SCORES.LIVE_ONE;
-            }
-
-            return 0;
-        }
-
-        // ========== Evaluate Position ==========
-        // Evaluate a single position for a player
-        function evaluatePosition(row, col, player) {
-            let totalScore = 0;
-
-            // Check each direction
-            for (const { dr, dc } of DIRECTIONS) {
-                const line = getLine(row, col, dr, dc, player);
-                const score = analyzePattern(line, player);
-                totalScore += score;
-            }
-
-            return totalScore;
-        }
-
-        // ========== Evaluate Board ==========
-        // Evaluate entire board for a player
-        function evaluateBoard(player) {
-            let totalScore = 0;
-
-            // Only evaluate positions that have pieces
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    if (board[row][col] === player) {
-                        totalScore += evaluatePosition(row, col, player);
-                    }
-                }
-            }
-
-            return totalScore;
-        }
-
-        // ========== Get Candidate Moves ==========
-        // Get candidate moves (positions with neighbors, limited to ~15)
-        function getCandidateMoves() {
-            const candidates = [];
+        // ========== Get best move for AI ==========
+        function getBestMove() {
+            let bestScore = -Infinity;
+            let bestMoves = [];
 
             for (let row = 0; row < BOARD_SIZE; row++) {
                 for (let col = 0; col < BOARD_SIZE; col++) {
                     if (board[row][col] === EMPTY && hasNeighbor(row, col)) {
-                        const score = evaluatePosition(row, col, AI) + evaluatePosition(row, col, PLAYER);
-                        candidates.push({ row, col, score });
+                        // Simulate AI move
+                        board[row][col] = AI;
+                        let aiScore = 0;
+                        for (let r = 0; r < BOARD_SIZE; r++) {
+                            for (let c = 0; c < BOARD_SIZE; c++) {
+                                if (board[r][c] === AI) {
+                                    aiScore += evaluatePositionScore(r, c, AI);
+                                }
+                            }
+                        }
+                        board[row][col] = EMPTY;
+
+                        // Simulate player response
+                        board[row][col] = PLAYER;
+                        let playerScore = 0;
+                        for (let r = 0; r < BOARD_SIZE; r++) {
+                            for (let c = 0; c < BOARD_SIZE; c++) {
+                                if (board[r][c] === PLAYER) {
+                                    playerScore += evaluatePositionScore(r, c, PLAYER);
+                                }
+                            }
+                        }
+                        board[row][col] = EMPTY;
+
+                        const totalScore = aiScore + playerScore;
+
+                        if (totalScore > bestScore) {
+                            bestScore = totalScore;
+                            bestMoves = [{ row, col }];
+                        } else if (totalScore === bestScore) {
+                            bestMoves.push({ row, col });
+                        }
                     }
                 }
             }
 
-            // Sort by score and take top candidates
-            candidates.sort((a, b) => b.score - a.score);
-            return candidates.slice(0, 15);
-        }
-
-        // ========== Get Strategic Move ==========
-        // Get best strategic move (for easy AI)
-        function getStrategicMove() {
-            const candidates = getCandidateMoves();
-            if (candidates.length === 0) {
-                // If no candidates, return center or any empty cell
+            if (bestMoves.length === 0) {
+                // Fallback to center
                 const center = Math.floor(BOARD_SIZE / 2);
                 if (board[center][center] === EMPTY) {
                     return { row: center, col: center };
                 }
                 // Find any empty cell
-                for (let row = 0; row < BOARD_SIZE; row++) {
-                    for (let col = 0; col < BOARD_SIZE; col++) {
-                        if (board[row][col] === EMPTY) {
-                            return { row, col };
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        if (board[r][c] === EMPTY) {
+                            return { row: r, col: c };
                         }
                     }
                 }
                 return null;
             }
 
-            // Return best candidate
-            return candidates[0];
+            return bestMoves[Math.floor(Math.random() * bestMoves.length)];
         }
 
-        // ========== AI Move Easy ==========
-        // Easy difficulty: 30% strategic, 70% random
-        function aiMoveEasy() {
-            const emptyCells = [];
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    if (board[row][col] === EMPTY) {
-                        emptyCells.push({ row, col });
-                    }
-                }
-            }
-
-            if (emptyCells.length === 0) return null;
-
-            // 30% chance for strategic move
-            if (Math.random() < 0.3) {
-                const strategic = getStrategicMove();
-                if (strategic) return strategic;
-            }
-
-            // 70% random move
-            const randomIndex = Math.floor(Math.random() * emptyCells.length);
-            return emptyCells[randomIndex];
-        }
-
-        // ========== AI Move Medium ==========
-        // Medium difficulty: evaluate all positions with neighbors
-        function aiMoveMedium() {
-            let bestScore = -Infinity;
-            let bestMove = null;
-
-            for (let row = 0; row < BOARD_SIZE; row++) {
-                for (let col = 0; col < BOARD_SIZE; col++) {
-                    if (board[row][col] === EMPTY && hasNeighbor(row, col)) {
-                        // Simulate placing AI piece
-                        board[row][col] = AI;
-                        const aiScore = evaluateBoard(AI);
-                        const playerScore = evaluateBoard(PLAYER);
-                        const totalScore = aiScore + playerScore;
-                        board[row][col] = EMPTY;
-
-                        if (totalScore > bestScore) {
-                            bestScore = totalScore;
-                            bestMove = { row, col };
-                        }
-                    }
-                }
-            }
-
-            // Fallback if no candidates found
-            if (!bestMove) {
-                for (let row = 0; row < BOARD_SIZE; row++) {
-                    for (let col = 0; col < BOARD_SIZE; col++) {
-                        if (board[row][col] === EMPTY) {
-                            return { row, col };
-                        }
-                    }
-                }
-            }
-
-            return bestMove;
-        }
-
-        // ========== Minimax with Alpha-Beta Pruning ==========
-        function minimax(depth, isMaximizing, alpha, beta) {
-            // Terminal conditions
-            if (depth === 0) {
-                return evaluateBoard(AI) - evaluateBoard(PLAYER);
-            }
-
-            const candidates = getCandidateMoves();
-
-            // If no candidates or board is full
-            if (candidates.length === 0) {
-                return evaluateBoard(AI) - evaluateBoard(PLAYER);
-            }
-
-            if (isMaximizing) {
-                let maxEval = -Infinity;
-                for (const move of candidates) {
-                    board[move.row][move.col] = AI;
-                    const evalScore = minimax(depth - 1, false, alpha, beta);
-                    board[move.row][move.col] = EMPTY;
-                    maxEval = Math.max(maxEval, evalScore);
-                    alpha = Math.max(alpha, evalScore);
-                    if (beta <= alpha) break;
-                }
-                return maxEval;
-            } else {
-                let minEval = Infinity;
-                for (const move of candidates) {
-                    board[move.row][move.col] = PLAYER;
-                    const evalScore = minimax(depth - 1, true, alpha, beta);
-                    board[move.row][move.col] = EMPTY;
-                    minEval = Math.min(minEval, evalScore);
-                    beta = Math.min(beta, evalScore);
-                    if (beta <= alpha) break;
-                }
-                return minEval;
-            }
-        }
-
-        // ========== AI Move Hard ==========
-        // Hard difficulty: minimax with alpha-beta pruning, depth 3
-        function aiMoveHard() {
-            const candidates = getCandidateMoves();
-
-            // Fallback if no candidates
-            if (candidates.length === 0) {
-                const center = Math.floor(BOARD_SIZE / 2);
-                if (board[center][center] === EMPTY) {
-                    return { row: center, col: center };
-                }
-                // Try to find any empty cell
-                for (let row = 0; row < BOARD_SIZE; row++) {
-                    for (let col = 0; col < BOARD_SIZE; col++) {
-                        if (board[row][col] === EMPTY) {
-                            return { row, col };
-                        }
-                    }
-                }
-                return null;
-            }
-
-            let bestScore = -Infinity;
-            let bestMove = candidates[0];
-
-            for (const move of candidates) {
-                board[move.row][move.col] = AI;
-                const score = minimax(2, false, -Infinity, Infinity);
-                board[move.row][move.col] = EMPTY;
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestMove = move;
-                }
-            }
-
-            return bestMove;
-        }
-
-        // ========== AI Move Dispatcher ==========
+        // ========== AI Move ==========
         function aiMove() {
             if (gameOver) return;
 
-            let move;
-            switch (difficulty) {
-                case 'easy':
-                    move = aiMoveEasy();
-                    break;
-                case 'medium':
-                    move = aiMoveMedium();
-                    break;
-                case 'hard':
-                    move = aiMoveHard();
-                    break;
-                default:
-                    move = aiMoveMedium();
-            }
-
-            if (!move) {
-                // Fallback: find any empty cell
-                for (let row = 0; row < BOARD_SIZE; row++) {
-                    for (let col = 0; col < BOARD_SIZE; col++) {
-                        if (board[row][col] === EMPTY) {
-                            move = { row, col };
-                            break;
-                        }
-                    }
-                    if (move) break;
-                }
-            }
+            const move = getBestMove();
+            console.log('AI move:', move);
 
             if (move) {
                 placePiece(move.row, move.col, AI);
+            } else {
+                console.log('ERROR: No valid move found!');
             }
 
-            // Switch back to player if game not over
             if (!gameOver) {
                 currentPlayer = PLAYER;
                 updateStatus();
@@ -1123,16 +890,14 @@
 
             // Difficulty selector buttons
             const diffButtons = document.querySelectorAll('.diff-btn');
-            diffButtons.forEach((btn, index) => {
-                const levels = ['easy', 'medium', 'hard'];
+            diffButtons.forEach(btn => {
                 btn.addEventListener('click', () => {
                     diffButtons.forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    difficulty = levels[index];
+                    difficulty = btn.dataset.level;
+                    console.log('Difficulty changed to:', difficulty);
                 });
             });
-            // Set default active button (medium)
-            diffButtons[1].classList.add('active');
 
             // Restart button
             document.querySelectorAll('.action-btn').forEach(btn => {
@@ -1159,9 +924,9 @@
         <div class="game-wrapper">
             <div class="control-panel">
                 <div class="difficulty-selector">
-                    <button class="diff-btn">简单</button>
-                    <button class="diff-btn">中等</button>
-                    <button class="diff-btn">困难</button>
+                    <button class="diff-btn" data-level="easy">简单</button>
+                    <button class="diff-btn active" data-level="medium">中等</button>
+                    <button class="diff-btn" data-level="hard">困难</button>
                 </div>
 
                 <div class="status-bar">
